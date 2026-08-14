@@ -51,7 +51,7 @@ export const ServicesShowcase: React.FC<ServicesShowcaseProps> = ({
               {/* Image Container with fixed height h-48 w-full object-cover rounded-xl */}
               <div className="h-48 w-full rounded-xl overflow-hidden relative border border-slate-800 bg-slate-950">
                 <img 
-                  src="/images/reverse_engineering.png" 
+                  src="/images/part_petg.png"
                   alt="Reverse Engineering" 
                   className="h-48 w-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
@@ -169,7 +169,7 @@ export const ServicesShowcase: React.FC<ServicesShowcaseProps> = ({
               {/* Image Container with fixed height h-48 w-full object-cover rounded-xl */}
               <div className="h-48 w-full rounded-xl overflow-hidden relative border border-slate-800 bg-slate-950">
                 <img 
-                  src="/images/bambu_farm.png" 
+                  src="/images/proto_pla.png"
                   alt="Bambu Lab Fleet" 
                   className="h-48 w-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {

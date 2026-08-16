@@ -471,13 +471,22 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
     }, 800);
   };
 
-  // Dispatch Email Payload with Custom Multilingual Validation Protection & RODO Auto-Reset
+  // Dispatch Email Payload with Custom Multilingual Validation Protection & Exact 3D Spec Format
   const handleTriggerEmailDispatch = () => {
     setEmailTouched(true);
     setNameTouched(true);
 
     if (!isEmailValid || !isNameValid) {
-      let errorMsg = !userEmail.trim() ? tVal.requiredField : (!isEmailValid ? tVal.invalidEmail : tVal.requiredField);
+      let errorMsg = language === 'DE'
+        ? "Bitte geben Sie eine gültige E-Mail-Adresse und Ihren Namen ein."
+        : language === 'PL'
+        ? "Proszę podać poprawny adres e-mail oraz imię / nazwę firmy."
+        : language === 'EN'
+        ? "Please enter a valid email address and your name / company."
+        : language === 'TR'
+        ? "Lütfen geçerli bir e-posta adresi ve adınızı/şirketinizi girin."
+        : "Будь ласка, вкажіть коректну e-mail адресу та ім'я / назву компанії.";
+
       setFormError(errorMsg);
       return;
     }
@@ -485,47 +494,30 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
     setFormError(null);
     setEmailSentSuccess(true);
 
+    // Compute active 3D file specifications
+    const activeFileName = initialQuote ? initialQuote.fileName : (uploadedFile ? uploadedFile.fileName : 'Brak pliku');
+    const activeWeight = initialQuote ? `${initialQuote.weightGrams}` : (uploadedFile ? `${uploadedFile.totalWeightGrams}` : '0');
+    const activeMaterial = initialQuote 
+      ? (MATERIALS.find(m => m.id === initialQuote.materialId)?.name || initialQuote.materialId)
+      : (uploadedFile ? (uploadedFile.materialRecommendation || 'PETG Technical / PAHT-CF') : 'Standard');
+    const activeGross = initialQuote ? `${initialQuote.totalGross}` : (uploadedFile ? `${uploadedFile.priceBrutto}` : '0.00');
+
     // Filter chat transcript for DSGVO compliance - exclude sensitive personal data from public chat log
     const conversationText = messages
       .filter(m => !m.text.includes('3dapex.de@gmail.com') || m.isQuoteSummary)
       .map(m => `[${m.sender.toUpperCase()}]: ${m.text}`)
       .join('\n\n');
-    
-    let activeSpecString = '';
 
-    if (initialQuote) {
-      const matObj = MATERIALS.find(m => m.id === initialQuote.materialId) || MATERIALS[0];
-      activeSpecString = `--- DYNAMIC CALCULATOR 3D SPECIFICATION ---\n` +
-        `• ${t.summaryFile} ${initialQuote.fileName}\n` +
-        `• ${t.summaryWeightVolume} ${initialQuote.weightGrams} g (${initialQuote.fileVolumeCm3} cm³)\n` +
-        `• Material: ${matObj.name}\n` +
-        `• Parameters: ${initialQuote.infillPercent}% Gyroid • ${initialQuote.layerHeight}\n` +
-        `• Quantity: ${initialQuote.quantity} pcs\n` +
-        `• Net Price: €${initialQuote.totalNet.toFixed(2)} EUR\n` +
-        `• VAT: €${initialQuote.costVat.toFixed(2)} EUR\n` +
-        `• ${t.summaryGrossTotal} €${initialQuote.totalGross.toFixed(2)} EUR\n`;
-    } else if (uploadedFile) {
-      activeSpecString = `--- DYNAMIC ATTACHED FILE SPECIFICATION ---\n` +
-        `• ${t.summaryFile} ${uploadedFile.fileName}\n` +
-        `• Size: ${uploadedFile.formattedSize}\n` +
-        `• Orientation: ${uploadedFile.orientationNote}\n` +
-        `• Net Weight: ~${uploadedFile.weightGrams} g\n` +
-        `• Tree Supports: +${uploadedFile.supportPercent}% (~${uploadedFile.supportWeightGrams} g)\n` +
-        `• ${t.summaryWeightVolume} ~${uploadedFile.totalWeightGrams} g\n` +
-        `• Material: ${uploadedFile.materialRecommendation || 'PETG Technical / PAHT-CF'}\n` +
-        `• Net Price: €${uploadedFile.priceNetto} EUR\n` +
-        `• VAT: €${uploadedFile.vatAmount} EUR\n` +
-        `• ${t.summaryGrossTotal} €${uploadedFile.priceBrutto} EUR\n`;
-    } else {
-      activeSpecString = `--- NO FILE ATTACHED ---\n`;
-    }
-
-    const fullMessagePayload = `3D APEX INQUIRY & SPECIFICATION DISPATCH (RODO / DSGVO SECURE)\n\n` +
-      `Name / Company: ${userName}\n` +
-      `Email: ${userEmail}\n` +
-      `Notes: ${userNotes || 'No notes'}\n\n` +
-      `${activeSpecString}\n` +
-      `--- CHAT LOG ---\n` +
+    const fullMessagePayload = `🚀 NOWE ZAMÓWIENIE / WYCENA 3D APEX\n` +
+      `----------------------------------\n` +
+      `Plik 3D: ${activeFileName}\n` +
+      `Waga: ${activeWeight} g\n` +
+      `Materiał: ${activeMaterial}\n` +
+      `Kwota Brutto: € ${activeGross}\n` +
+      `Klient: ${userName}\n` +
+      `E-mail: ${userEmail}\n` +
+      `Uwagi: ${userNotes || 'Brak dodatkowych uwag'}\n\n` +
+      `--- PEŁNY CHAT LOG ---\n` +
       `${conversationText}`;
 
     // Web3Forms API post to 3dapex.de@gmail.com
@@ -534,7 +526,7 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         access_key: '3dapex-b2b-inquiry-key',
-        subject: `[3D APEX ZAMÓWIENIE] Plik 3D: ${initialQuote ? initialQuote.fileName : (uploadedFile ? uploadedFile.fileName : 'Zapytanie')}`,
+        subject: `[3D APEX ZAMÓWIENIE] Plik 3D: ${activeFileName}`,
         from_name: '3D Apex Customer Inquiry',
         to_email: '3dapex.de@gmail.com',
         email: userEmail,
@@ -543,7 +535,7 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
     }).catch(err => console.log('Web3Forms email dispatch error:', err));
 
     setTimeout(() => {
-      const emailSubject = encodeURIComponent(`3D Apex Inquiry - ${initialQuote ? initialQuote.fileName : (uploadedFile ? uploadedFile.fileName : 'Client Order')}`);
+      const emailSubject = encodeURIComponent(`🚀 NOWE ZAMÓWIENIE 3D APEX - ${activeFileName}`);
       const emailBody = encodeURIComponent(fullMessagePayload);
       window.location.href = `mailto:3dapex.de@gmail.com?subject=${emailSubject}&body=${emailBody}`;
     }, 400);
@@ -750,14 +742,17 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
 
             {/* Dynamic 3D Specification Preview Card in Email Modal */}
             {initialQuote ? (
-              <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/50 space-y-1.5 text-xs">
-                <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+              <div className="p-3.5 rounded-xl bg-slate-900 border border-emerald-500/50 space-y-2 text-xs">
+                <div className="font-bold text-emerald-400 flex items-center gap-1.5 text-sm">
                   <FileText className="w-4 h-4" />
                   <span>{t.summaryTitle}</span>
                 </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-cyan-300 text-xs truncate">
+                  📎 <strong>{initialQuote.fileName}</strong> • {initialQuote.weightGrams} g • {MATERIALS.find(m => m.id === initialQuote.materialId)?.name || initialQuote.materialId}
+                </div>
                 <div className="flex justify-between text-slate-300">
                   <span>{t.summaryFile}</span>
-                  <span className="font-bold text-white truncate max-w-[180px]">{initialQuote.fileName}</span>
+                  <span className="font-bold text-white truncate max-w-[200px]">{initialQuote.fileName}</span>
                 </div>
                 <div className="flex justify-between text-slate-300">
                   <span>{t.summaryWeightVolume}</span>
@@ -765,18 +760,21 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
                 </div>
                 <div className="flex justify-between text-slate-300 pt-1 border-t border-slate-800 font-bold">
                   <span>{t.summaryGrossTotal}</span>
-                  <span className="text-emerald-400 text-sm">€{initialQuote.totalGross} EUR</span>
+                  <span className="text-emerald-400 text-sm font-extrabold">€{initialQuote.totalGross} EUR</span>
                 </div>
               </div>
             ) : uploadedFile ? (
-              <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/50 space-y-1.5 text-xs">
-                <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+              <div className="p-3.5 rounded-xl bg-slate-900 border border-emerald-500/50 space-y-2 text-xs">
+                <div className="font-bold text-emerald-400 flex items-center gap-1.5 text-sm">
                   <Paperclip className="w-4 h-4" />
                   <span>{t.summaryTitle}</span>
                 </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-cyan-300 text-xs truncate">
+                  📎 <strong>{uploadedFile.fileName}</strong> • {uploadedFile.totalWeightGrams} g • {uploadedFile.materialRecommendation || 'PETG Technical / PAHT-CF'}
+                </div>
                 <div className="flex justify-between text-slate-300">
                   <span>{t.summaryFile}</span>
-                  <span className="font-bold text-white truncate max-w-[180px]">{uploadedFile.fileName} ({uploadedFile.formattedSize})</span>
+                  <span className="font-bold text-white truncate max-w-[200px]">{uploadedFile.fileName} ({uploadedFile.formattedSize})</span>
                 </div>
                 <div className="flex justify-between text-slate-300">
                   <span>{t.summaryWeightVolume}</span>
@@ -784,7 +782,7 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
                 </div>
                 <div className="flex justify-between text-slate-300 pt-1 border-t border-slate-800 font-bold">
                   <span>{t.summaryGrossTotal}</span>
-                  <span className="text-emerald-400 text-sm">€{uploadedFile.priceBrutto} EUR</span>
+                  <span className="text-emerald-400 text-sm font-extrabold">€{uploadedFile.priceBrutto} EUR</span>
                 </div>
               </div>
             ) : null}

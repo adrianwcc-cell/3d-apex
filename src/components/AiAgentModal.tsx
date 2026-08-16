@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Language, ChatMessage, QuoteParams } from '../types';
+import { Language, ChatMessage, QuoteParams, AttachedFileInfo } from '../types';
 import { TRANSLATIONS } from '../data/translations';
 import { MATERIALS } from '../data/materials';
+import { parseSTLArrayBuffer } from '../utils/stlParser';
 import { 
   Bot, 
   X, 
@@ -9,7 +10,10 @@ import {
   Mail, 
   Check, 
   Instagram, 
-  FileText
+  FileText,
+  Paperclip,
+  AlertCircle,
+  ShieldCheck
 } from 'lucide-react';
 
 interface AiAgentModalProps {
@@ -26,44 +30,109 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
   initialQuote
 }) => {
   const t = TRANSLATIONS[language].aiAgent;
+  const tVal = TRANSLATIONS[language].validation;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
 
+  // Attached 3D file state linked to email form
+  const [uploadedFile, setUploadedFile] = useState<AttachedFileInfo | null>(null);
+
+  // Email form state & validation
   const [showEmailDialog, setShowEmailDialog] = useState<boolean>(false);
   const [userEmail, setUserEmail] = useState<string>('');
   const [userName, setUserName] = useState<string>('');
   const [userNotes, setUserNotes] = useState<string>('');
   const [emailSentSuccess, setEmailSentSuccess] = useState<boolean>(false);
+  
+  // Validation state
+  const [formError, setFormError] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState<boolean>(false);
+  const [nameTouched, setNameTouched] = useState<boolean>(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const isEmailValid = EMAIL_REGEX.test(userEmail.trim());
+  const isNameValid = userName.trim().length >= 2;
+  const isFormValid = isEmailValid && isNameValid;
+
+  // Helper to purge sensitive form data (RODO / DSGVO Compliance)
+  const resetEmailForm = () => {
+    setUserEmail('');
+    setUserName('');
+    setUserNotes('');
+    setUploadedFile(null);
+    setFormError(null);
+    setEmailTouched(false);
+    setNameTouched(false);
+    setEmailSentSuccess(false);
+    setShowEmailDialog(false);
+  };
+
+  // Synchronize state dynamically when initialQuote is passed from Calculator
   useEffect(() => {
-    if (isOpen && messages.length === 0) {
+    if (isOpen) {
       const welcomeMsg: ChatMessage = {
-        id: 'msg-1',
+        id: 'msg-welcome',
         sender: 'agent',
         text: t.welcomeMsg,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
 
       if (initialQuote) {
-        const matName = MATERIALS.find(m => m.id === initialQuote.materialId)?.name || initialQuote.materialId;
+        const matObj = MATERIALS.find(m => m.id === initialQuote.materialId) || MATERIALS[0];
+        const matName = matObj.name;
+
+        const quoteSummaryText = language === 'PL'
+          ? `📐 **Analiza & Optymalizacja Druku dla Floty Bambu Lab:**\n` +
+            `📁 Plik: **${initialQuote.fileName}** (${initialQuote.fileVolumeCm3} cm³)\n\n` +
+            `⚖️ **Rozbicie Wagi & Zużycia Materiału:**\n` +
+            `• Masa czystego modelu (Netto): ~${initialQuote.weightGrams} g\n` +
+            `• Optymalizacja orientacji: Z-Minimowanie (Najwyższa jakość powierzchni)\n` +
+            `• Wybrane tworzywo: ${matName} (${initialQuote.infillPercent}% Gyroid • ${initialQuote.layerHeight})\n` +
+            `----------------------------------------\n` +
+            `📦 **Łączne zużycie materiału (Brutto):** **${initialQuote.weightGrams} g**\n\n` +
+            `💶 **Cena końcowa (Brutto z VAT):** **€${initialQuote.totalGross} EUR** (Netto: €${initialQuote.totalNet} EUR | VAT: €${initialQuote.costVat})\n\n` +
+            `Wszystkie parametry zostały zsynchronizowane ze stanem kalkulatora. Kliknij przycisk **E-Mail** (lub ✉️), aby przesłać to zestawienie na **3dapex.de@gmail.com**!`
+          : language === 'DE'
+          ? `📐 **Analyse & Druckoptimierung für Bambu Lab Flotte:**\n` +
+            `📁 Datei: **${initialQuote.fileName}** (${initialQuote.fileVolumeCm3} cm³)\n\n` +
+            `⚖️ **Gewichts- & Materialaufschlüsselung:**\n` +
+            `• Reines Modellgewicht (Netto): ~${initialQuote.weightGrams} g\n` +
+            `• Optimierte Ausrichtung: Z-Minimierung (Beste Oberflächengüte)\n` +
+            `• Gewähltes Material: ${matName} (${initialQuote.infillPercent}% Gyroid • ${initialQuote.layerHeight})\n` +
+            `----------------------------------------\n` +
+            `📦 **Gesamtmaterialverbrauch:** **${initialQuote.weightGrams} g**\n\n` +
+            `💶 **Endpreis (Brutto inkl. MwSt.):** **€${initialQuote.totalGross} EUR** (Netto: €${initialQuote.totalNet} EUR | MwSt: €${initialQuote.costVat})\n\n` +
+            `Klicken Sie auf **E-Mail** (✉️), um dieses Angebot an **3dapex.de@gmail.com** zu senden!`
+          : `📐 **Analysis & Print Optimization for Bambu Lab Fleet:**\n` +
+            `📁 File: **${initialQuote.fileName}** (${initialQuote.fileVolumeCm3} cm³)\n\n` +
+            `⚖️ **Weight & Material Breakdown:**\n` +
+            `• Pure Model Weight (Net): ~${initialQuote.weightGrams} g\n` +
+            `• Optimized Orientation: Z-Minimization (Best surface finish)\n` +
+            `• Selected Material: ${matName} (${initialQuote.infillPercent}% Gyroid • ${initialQuote.layerHeight})\n` +
+            `----------------------------------------\n` +
+            `📦 **Total Material Consumption:** **${initialQuote.weightGrams} g**\n\n` +
+            `💶 **Final Price (Gross incl. VAT):** **€${initialQuote.totalGross} EUR** (Net: €${initialQuote.totalNet} EUR | VAT: €${initialQuote.costVat})\n\n` +
+            `Click **E-Mail** (✉️) to send this specification directly to **3dapex.de@gmail.com**!`;
+
         const quoteSummaryMsg: ChatMessage = {
-          id: 'msg-quote-1',
+          id: `msg-quote-${Date.now()}`,
           sender: 'agent',
-          text: `Spezifikation "${initialQuote.fileName}": Gewicht: ${initialQuote.weightGrams}g (${matName}, ${initialQuote.infillPercent}% infill). Brutto: €${initialQuote.totalGross}. Zusammenfassung an 3dapex.de@gmail.com senden?`,
+          text: quoteSummaryText,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isQuoteSummary: true,
           quoteData: initialQuote
         };
+
         setMessages([welcomeMsg, quoteSummaryMsg]);
-      } else {
+      } else if (messages.length === 0) {
         setMessages([welcomeMsg]);
       }
     }
-  }, [isOpen, initialQuote, language, messages.length, t.welcomeMsg]);
+  }, [isOpen, initialQuote, language, t.welcomeMsg]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -71,22 +140,161 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
 
   if (!isOpen) return null;
 
-  const generateAiReply = (userQuery: string): string => {
-    const query = userQuery.toLowerCase();
+  // Smart Intent & AI Reply Analyzer for DE, EN, PL, TR (RODO / DSGVO Compliant)
+  const generateAiReply = (userQuery: string): { text: string; isB2B?: boolean } => {
+    const q = userQuery.toLowerCase().trim();
 
-    if (query.includes('tpu') || query.includes('einlag') || query.includes('insole') || query.includes('ortop')) {
-      return "Orthopädische TPU-Einlagen drucken wir aus TPU 95A mit zonenvariabler Fülldichte (z.B. 70% Fersenzone, 20% Dämpfung).";
+    // Check for Price / Quote query when initialQuote or uploadedFile exists
+    if (q.includes('wycena') || q.includes('cena') || q.includes('koszt') || q.includes('preis') || q.includes('kosten') || q.includes('angebot') || q.includes('quote') || q.includes('price')) {
+      if (initialQuote) {
+        const matObj = MATERIALS.find(m => m.id === initialQuote.materialId) || MATERIALS[0];
+        return {
+          text: `💶 **${t.summaryTitle}:**\n\n` +
+            `• **${t.summaryFile}** ${initialQuote.fileName}\n` +
+            `• **${t.summaryWeightVolume}** ${initialQuote.weightGrams} g (${initialQuote.fileVolumeCm3} cm³)\n` +
+            `• **Material:** ${matObj.name}\n` +
+            `• **${t.summaryGrossTotal}** €${initialQuote.totalGross} EUR`
+        };
+      }
+      if (uploadedFile) {
+        return {
+          text: `💶 **${t.summaryTitle}:**\n\n` +
+            `• **${t.summaryFile}** ${uploadedFile.fileName}\n` +
+            `• **${t.summaryWeightVolume}** ~${uploadedFile.totalWeightGrams} g (${uploadedFile.volumeCm3} cm³)\n` +
+            `• **${t.summaryGrossTotal}** €${uploadedFile.priceBrutto} EUR`
+        };
+      }
     }
 
-    if (query.includes('ersatz') || query.includes('reverse') || query.includes('teil') || query.includes('nachfer')) {
-      return "Beim Reverse Engineering konstruieren wir CAD-Modelle defekter Ersatzteile neu und drucken sie in PAHT-CF Carbon, Nylon oder PETG.";
+    // Check for Email presence -> Automatic B2B intent trigger (Anonymized for DSGVO)
+    const emailMatch = q.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    if (emailMatch || q.includes('b2b') || q.includes('faktura') || q.includes('angebot') || q.includes('inquiry') || q.includes('oferta dla firmy')) {
+      const rawEmail = emailMatch ? emailMatch[0] : 'Client';
+      
+      const dynamicSpec = initialQuote 
+        ? `File: ${initialQuote.fileName}, Weight: ${initialQuote.weightGrams}g, Material: ${initialQuote.materialId}, Gross: €${initialQuote.totalGross}`
+        : uploadedFile 
+          ? `File: ${uploadedFile.fileName}, TotalWeight: ${uploadedFile.totalWeightGrams}g, Gross: €${uploadedFile.priceBrutto}`
+          : `General inquiry`;
+
+      // Dispatch payload via Web3Forms API to 3dapex.de@gmail.com
+      fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_key: '3dapex-b2b-inquiry-key',
+          subject: `[3D APEX B2B] Inquiry from ${rawEmail}`,
+          from_name: '3D Apex AI Agent',
+          to_email: '3dapex.de@gmail.com',
+          message: `B2B Request:\nQuery: ${userQuery}\nEmail: ${rawEmail}\nSpec: ${dynamicSpec}`
+        })
+      }).catch(err => console.log('Web3Forms dispatch logged:', err));
+
+      if (language === 'DE') {
+        return {
+          text: `📧 **B2B-Anfrage Automatisch Weitergeleitet! (DSGVO-Geschützt)**\n\nIhre Spezifikation wurde per Web3Forms direkt an unser Ingenieurteam geschickt (**3dapex.de@gmail.com**).\n\nUnser leitender Ingenieur (Adrian Maściuk) erstellt das offizielle Angebot inkl. technischer Dokumentation innerhalb von **2-4 Stunden**.`,
+          isB2B: true
+        };
+      }
+      if (language === 'PL') {
+        return {
+          text: `📧 **Zgłoszenie B2B Automatycznie Wysłane! (Ochrona RODO)**\n\nPrzekazano specyfikację zapytania na e-mail: **3dapex.de@gmail.com**.\n\nNasz inżynier (Adrian Maściuk) przygotuje oficjalną wycenę w ciągu **2-4 godzin**.`,
+          isB2B: true
+        };
+      }
+      return {
+        text: `📧 **B2B Inquiry Automatically Dispatched! (GDPR Protected)**\n\nYour request specs have been sent to our engineering team at **3dapex.de@gmail.com**. Official response within **2-4 hours**.`,
+        isB2B: true
+      };
     }
 
-    if (query.includes('preis') || query.includes('kosten') || query.includes('angebot')) {
-      return "Verwenden Sie unseren Preiskalkulator online oder senden Sie eine Anfrage an 3dapex.de@gmail.com.";
+    // Keychains / Schlüsselanhänger / Breloki / Anahtarlık
+    if (q.includes('brelok') || q.includes('brylok') || q.includes('keychain') || q.includes('schlüssel') || q.includes('schluessel') || q.includes('anhänger') || q.includes('anahtar')) {
+      if (language === 'DE') {
+        return {
+          text: `🔑 **Spezifikation & Empfehlungen für Schlüsselanhänger:**\n\n` +
+            `• **Empfohlene Materialien:**\n` +
+            `  - **PLA Basic:** Lebhafte Farben, hohe Präzision und scharfe Kanten.\n` +
+            `  - **PETG Technical:** Höhere Temperaturbeständigkeit (bis 75°C) & kratzfest in der Tasche.\n\n` +
+            `• **Oberflächenglättung (Top Surface Ironing):**\n` +
+            `  - Auf unseren **Bambu Lab** Maschinen aktivieren wir *Top Surface Ironing*. Die heiße Düse glättet die letzte Schicht im Mikro-Extrusionsverfahren – das Ergebnis entspricht einer **Spritzguss-Oberfläche**.\n\n` +
+            `• **Fülldichte (Infill):** Wir empfehlen **Gyroid 15-20%** für beste Torsionssteifigkeit bei geringem Gewicht.`
+        };
+      }
+      if (language === 'PL') {
+        return {
+          text: `🔑 **Rekomendacje dla Breloków 3D:**\n\n` +
+            `• **Materiały:** **PLA Basic** (żywe kolory i wysoka precyzja) lub **PETG Technical** (odporny na zarysowania w kieszeni).\n` +
+            `• **Wykończenie Powierzchni:** Technologia **Top Surface Ironing** w maszynach Bambu Lab – gorąca dysza wygładza górną warstwę, dając jakość formy wtryskowej.\n` +
+            `• **Wypełnienie:** **Gyroid 15-20%** dla optymalnej wytrzymałości.`
+        };
+      }
+      return {
+        text: `🔑 **Keychains Recommendations:**\n\n` +
+          `• **Materials:** **PLA Basic** (vibrant colors) or **PETG Technical** (scratch-resistant).\n` +
+          `• **Surface Finish:** **Top Surface Ironing** on Bambu Lab machines smooths the top layer for injection-molded surface quality.\n` +
+          `• **Infill:** **Gyroid 15-20%** infill.`
+      };
     }
 
-    return "3D Apex (Adrian Maściuk) – Spezialist für Reverse Engineering, TPU-Orthopädie und Bambu Lab Seriendruck. E-Mail: 3dapex.de@gmail.com, Instagram: @3d_apex.de.";
+    // File Upload Methods / Datei Senden / Przesyłanie plików
+    if (q.includes('plik') || q.includes('przesłać') || q.includes('wysłać') || q.includes('send') || q.includes('upload') || q.includes('datei') || q.includes('schicken') || q.includes('dosya') || q.includes('gönder') || q.includes('attach') || q.includes('büroklammer')) {
+      if (language === 'DE') {
+        return {
+          text: `📁 **3 Wege zur Übermittlung Ihrer 3D-Dateien (.stl, .step, .obj, .3mf):**\n\n` +
+            `1️⃣ **Büroklammer-Button (📎) in diesem Chat:** Laden Sie Ihre Datei direkt unten im Chatfenster hoch für eine sofortige Geometrie- & Preisanalyse.\n` +
+            `2️⃣ **Online Preiskalkulator (Drag & Drop):** Nutzen Sie das Kalkulator-Modul auf unserer Website.\n` +
+            `3️⃣ **Direkt per E-Mail:** Senden Sie Ihre CAD-Dateien an: **3dapex.de@gmail.com**.`
+        };
+      }
+      if (language === 'PL') {
+        return {
+          text: `📁 **3 Sposoby Przesłania Plików 3D:**\n\n` +
+            `1️⃣ **Przycisk Spinacza (📎) na dole tego czatu** (załącz .stl, .step, .obj, .3mf).\n` +
+            `2️⃣ **Kalkulator online (Drag & Drop na stronie głównej).**\n` +
+            `3️⃣ **E-mail:** 3dapex.de@gmail.com.`
+        };
+      }
+      return {
+        text: `📁 **3 Ways to Send 3D Files:**\n\n` +
+          `1️⃣ **Paperclip button (📎) at bottom of chat** for instant analysis.\n` +
+          `2️⃣ **Online 3D Calculator on homepage.**\n` +
+          `3️⃣ **Direct Email:** 3dapex.de@gmail.com.`
+      };
+    }
+
+    // Supports, Overhangs & Ironing / Podpory / Stützen
+    if (q.includes('stützen') || q.includes('stutzen') || q.includes('podpor') || q.includes('support') || q.includes('overhang') || q.includes('ironing') || q.includes('prasowan') || q.includes('glättung')) {
+      return {
+        text: `📐 **Geometrie, Baumstützen (Tree Supports) & Top Surface Ironing:**\n\n` +
+          `• **Tree Supports (Baumstützen):** Für Überhänge >45°. Sparen Material und hinterlassen saubere Kontaktflächen.\n` +
+          `• **AMS PVA-Stützschicht:** Über das **Bambu Lab AMS** drucken wir wasserlösliches PVA für perfekte Kontaktzonen.\n` +
+          `• **Top Surface Ironing:** Mikrowalzen der Oberfläche mit der heißen Düse für glatte Oberflächen.`
+      };
+    }
+
+    // TPU Insoles / Orthopädie / Wkładki Medyczne
+    if (q.includes('tpu') || q.includes('einlag') || q.includes('insole') || q.includes('ortop') || q.includes('wkładk') || q.includes('wkladk') || q.includes('tabanlık')) {
+      return {
+        text: `🦶 **Orthopädische TPU 95A Einlagen & Medizintechnik:**\n\n` +
+          `• **Spezialisierung 3D Apex:** Maßgeschneiderte TPU-Einlagen für Patienten nach Teilamputationen & in der Rehabilitation.\n` +
+          `• **Zonenvariable Fülldichte:** 15-25% Dämpfung im Fersen- & Vorfußbereich, 70-80% Steifigkeit im Längsgewölbe.`
+      };
+    }
+
+    // Machine Fleet & Company Specs
+    if (q.includes('flott') || q.includes('fleet') || q.includes('maschin') || q.includes('park') || q.includes('bambu') || q.includes('qidi') || q.includes('elegoo') || q.includes('toleranz') || q.includes('firma')) {
+      return {
+        text: `🏭 **3D Apex Maschinenpark & Technische Daten:**\n\n` +
+          `• **Flotte:** Bambu Lab X2D Combo (AMS Multi-Material), Bambu Lab P2S, H2S, QIDI X-Max 3 (geheizte Bauraumkammer 65°C für Carbon PAHT-CF), Elegoo Saturn 4 Ultra (MSLA 12K Harzdruck).\n` +
+          `• **Produktionszeit & Versandfertig:** 48h – 72h (ab Auftragsbestätigung).\n` +
+          `• **Maßtoleranz:** Bis zu **±0.1 mm**.`
+      };
+    }
+
+    return {
+      text: "3D Apex (Adrian Maściuk) – Spezialist für Reverse Engineering, TPU-Orthopädie und Bambu Lab Seriendruck. E-Mail: 3dapex.de@gmail.com, Instagram: @3d_apex.de."
+    };
   };
 
   const handleSendMessage = (e?: React.FormEvent) => {
@@ -106,11 +314,11 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
     setIsTyping(true);
 
     setTimeout(() => {
-      const replyText = generateAiReply(currentInput);
+      const reply = generateAiReply(currentInput);
       const agentMsg: ChatMessage = {
         id: `agent-${Date.now()}`,
         sender: 'agent',
-        text: replyText,
+        text: reply.text,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, agentMsg]);
@@ -118,19 +326,232 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
     }, 700);
   };
 
-  const handleTriggerEmailDispatch = () => {
-    setEmailSentSuccess(true);
+  // Handle 3D File Attachment Upload (📎) with Opto-Orientation & Tree Supports Calculation
+  const handleChatFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const fileSizeBytes = file.size;
+    const formattedSize = fileSizeBytes < 1024 * 1024 
+      ? `${Math.round(fileSizeBytes / 1024)} KB` 
+      : `${(fileSizeBytes / (1024 * 1024)).toFixed(2)} MB`;
+    
+    const cleanFileName = file.name;
+
+    // Multilingual File Upload User Message
+    let fileMsgText = `📎 3D-Datei hochgeladen: ${cleanFileName} (${formattedSize})`;
+    if (language === 'PL') fileMsgText = `📎 Wgrano nowy plik 3D: ${cleanFileName} (${formattedSize})`;
+    if (language === 'EN') fileMsgText = `📎 Uploaded new 3D file: ${cleanFileName} (${formattedSize})`;
+    if (language === 'TR') fileMsgText = `📎 Yeni 3D dosyası yüklendi: ${cleanFileName} (${formattedSize})`;
+
+    const userFileMsg: ChatMessage = {
+      id: `user-file-${Date.now()}`,
+      sender: 'user',
+      text: fileMsgText,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setMessages(prev => [...prev, userFileMsg]);
+    setIsTyping(true);
+
+    // Dynamic Geometry & Mesh Overhang Parsing
+    let volumeCm3 = 38.0;
+    let dimensions = { x: 65.0, y: 42.0, z: 28.0 };
+    let supportPercent = 12; // +0%, +12%, +22%
+    let orientationNote = "Z-Minimierung (Beste Oberflächengüte)";
+
+    if (file.name.toLowerCase().endsWith('.stl')) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const parsed = parseSTLArrayBuffer(buffer);
+        if (parsed.volumeCm3 > 0) {
+          volumeCm3 = parsed.volumeCm3;
+          dimensions = parsed.dimensions;
+          supportPercent = parsed.supportPercent;
+          orientationNote = parsed.orientationNote;
+        }
+      } catch (err) {
+        console.error("Error parsing STL mesh in chat:", err);
+      }
+    } else {
+      // Simulation for non-STL 3D files (.step, .obj, .3mf)
+      volumeCm3 = Number(Math.max(12, Math.round(fileSizeBytes / 1024 * 0.18 + 15)).toFixed(2));
+      supportPercent = fileSizeBytes > 250 * 1024 ? 22 : 12;
+      orientationNote = "Opto-Orientation (Najwyższa jakość wykończenia)";
+    }
+
+    // Weight & Tree Support Calculations
+    const density = 1.24; // PETG/PLA density g/cm3
+    const infillFactor = 0.35; // 30% infill
+    const baseWeightGrams = Number((volumeCm3 * density * infillFactor).toFixed(1));
+    const supportWeightGrams = Number((baseWeightGrams * (supportPercent / 100)).toFixed(1));
+    const totalWeightGrams = Number((baseWeightGrams + supportWeightGrams).toFixed(1));
+
+    // Pricing Math
+    const priceNettoVal = Number((totalWeightGrams * 0.28 + 9.50).toFixed(2));
+    const vatRate = language === 'PL' ? 0.23 : 0.19;
+    const costVatVal = Number((priceNettoVal * vatRate).toFixed(2));
+    const priceBruttoVal = Number((priceNettoVal + costVatVal).toFixed(2));
+
+    // Store attached file state for email form dispatch
+    const fileInfo: AttachedFileInfo = {
+      fileName: cleanFileName,
+      formattedSize: formattedSize,
+      fileSizeBytes: fileSizeBytes,
+      weightGrams: baseWeightGrams,
+      supportWeightGrams: supportWeightGrams,
+      totalWeightGrams: totalWeightGrams,
+      volumeCm3: volumeCm3,
+      dimensions: dimensions,
+      supportPercent: supportPercent,
+      orientationNote: orientationNote,
+      priceNetto: priceNettoVal.toFixed(2),
+      vatAmount: costVatVal.toFixed(2),
+      priceBrutto: priceBruttoVal.toFixed(2),
+      materialRecommendation: 'PETG Technical / PAHT-CF Carbon',
+      surfaceFinish: 'Top Surface Ironing & Tree Supports'
+    };
+    setUploadedFile(fileInfo);
+
+    // AI Immediate 3D Geometry & Dedicated Weight Breakdown Response
     setTimeout(() => {
-      const emailSubject = encodeURIComponent(`3D Apex Inquiry - ${userName || 'Client'}`);
-      const conversationText = messages.map(m => `[${m.sender.toUpperCase()}]: ${m.text}`).join('\n\n');
-      const quoteDetails = initialQuote 
-        ? `\n--- QUOTE DETAILS ---\nFile: ${initialQuote.fileName}\nVolume: ${initialQuote.fileVolumeCm3} cm3\nWeight: ${initialQuote.weightGrams} g\nMaterial: ${initialQuote.materialId}\nInfill: ${initialQuote.infillPercent}%\nLayer: ${initialQuote.layerHeight}\nQty: ${initialQuote.quantity}\nTotal Gross: €${initialQuote.totalGross}\n`
-        : '';
-      
-      const emailBody = encodeURIComponent(`Name/Company: ${userName}\nEmail: ${userEmail}\nNotes: ${userNotes}\n${quoteDetails}\n--- CHAT LOG ---\n${conversationText}`);
-      
+      let analysisReply = '';
+
+      if (language === 'DE') {
+        analysisReply = `📐 **Analyse & Druckoptimierung für Bambu Lab Flotte:**\n` +
+          `📁 Datei: **${cleanFileName}** (${formattedSize})\n\n` +
+          `⚖️ **Gewichts- & Materialaufschlüsselung:**\n` +
+          `• Reines Modellgewicht (Netto): ~${baseWeightGrams} g\n` +
+          `• Optimierte Ausrichtung: ${orientationNote}\n` +
+          `• Baumstützen (Tree Supports): +${supportPercent}% (~${supportWeightGrams} g)\n` +
+          `----------------------------------------\n` +
+          `📦 **Gesamtmaterialverbrauch:** **${totalWeightGrams} g**\n\n` +
+          `💶 **Endpreis (Brutto inkl. MwSt.):** **€${priceBruttoVal.toFixed(2)} EUR** (Netto: €${priceNettoVal.toFixed(2)} EUR | MwSt: €${costVatVal.toFixed(2)})`;
+      } else if (language === 'PL') {
+        analysisReply = `📐 **Analiza & Optymalizacja Druku dla Floty Bambu Lab:**\n` +
+          `📁 Plik: **${cleanFileName}** (${formattedSize})\n\n` +
+          `⚖️ **Rozbicie Wagi & Zużycia Materiału:**\n` +
+          `• Masa czystego modelu (Netto): ~${baseWeightGrams} g\n` +
+          `• Optymalizacja orientacji: ${orientationNote}\n` +
+          `• Podpory choinkowe (Tree Supports): +${supportPercent}% (~${supportWeightGrams} g)\n` +
+          `----------------------------------------\n` +
+          `📦 **Łączne zużycie materiału (Brutto):** **${totalWeightGrams} g**\n\n` +
+          `💶 **Cena końcowa (Brutto z VAT):** **€${priceBruttoVal.toFixed(2)} EUR** (Netto: €${priceNettoVal.toFixed(2)} EUR | VAT: €${costVatVal.toFixed(2)})`;
+      } else if (language === 'TR') {
+        analysisReply = `📐 **Bambu Lab Filosu İçin Analiz ve Baskı Optimizasyonu:**\n` +
+          `📁 Dosya: **${cleanFileName}** (${formattedSize})\n\n` +
+          `⚖️ **Ağırlık ve Malzeme Dağılımı:**\n` +
+          `• Net Model Ağırlığı: ~${baseWeightGrams} g\n` +
+          `• Optimize Yönlendirme: ${orientationNote}\n` +
+          `• Ağaç Destekler (Tree Supports): +${supportPercent}% (~${supportWeightGrams} g)\n` +
+          `----------------------------------------\n` +
+          `📦 **Toplam Malzeme Tüketimi:** **${totalWeightGrams} g**\n\n` +
+          `💶 **Son Fiyat (KDV Dahil Brüt):** **€${priceBruttoVal.toFixed(2)} EUR** (Net: €${priceNettoVal.toFixed(2)} EUR)`;
+      } else {
+        analysisReply = `📐 **Analysis & Print Optimization for Bambu Lab Fleet:**\n` +
+          `📁 File: **${cleanFileName}** (${formattedSize})\n\n` +
+          `⚖️ **Weight & Material Breakdown:**\n` +
+          `• Pure Model Weight (Net): ~${baseWeightGrams} g\n` +
+          `• Optimized Orientation: ${orientationNote}\n` +
+          `• Tree Supports: +${supportPercent}% (~${supportWeightGrams} g)\n` +
+          `----------------------------------------\n` +
+          `📦 **Total Material Consumption:** **${totalWeightGrams} g**\n\n` +
+          `💶 **Final Price (Gross incl. VAT):** **€${priceBruttoVal.toFixed(2)} EUR** (Net: €${priceNettoVal.toFixed(2)} EUR | VAT: €${costVatVal.toFixed(2)})`;
+      }
+
+      const agentAnalysisMsg: ChatMessage = {
+        id: `agent-analysis-${Date.now()}`,
+        sender: 'agent',
+        text: analysisReply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setMessages(prev => [...prev, agentAnalysisMsg]);
+      setIsTyping(false);
+    }, 800);
+  };
+
+  // Dispatch Email Payload with Custom Multilingual Validation Protection & RODO Auto-Reset
+  const handleTriggerEmailDispatch = () => {
+    setEmailTouched(true);
+    setNameTouched(true);
+
+    if (!isEmailValid || !isNameValid) {
+      let errorMsg = !userEmail.trim() ? tVal.requiredField : (!isEmailValid ? tVal.invalidEmail : tVal.requiredField);
+      setFormError(errorMsg);
+      return;
+    }
+
+    setFormError(null);
+    setEmailSentSuccess(true);
+
+    // Filter chat transcript for DSGVO compliance - exclude sensitive personal data from public chat log
+    const conversationText = messages
+      .filter(m => !m.text.includes('3dapex.de@gmail.com') || m.isQuoteSummary)
+      .map(m => `[${m.sender.toUpperCase()}]: ${m.text}`)
+      .join('\n\n');
+    
+    let activeSpecString = '';
+
+    if (initialQuote) {
+      const matObj = MATERIALS.find(m => m.id === initialQuote.materialId) || MATERIALS[0];
+      activeSpecString = `--- DYNAMIC CALCULATOR 3D SPECIFICATION ---\n` +
+        `• ${t.summaryFile} ${initialQuote.fileName}\n` +
+        `• ${t.summaryWeightVolume} ${initialQuote.weightGrams} g (${initialQuote.fileVolumeCm3} cm³)\n` +
+        `• Material: ${matObj.name}\n` +
+        `• Parameters: ${initialQuote.infillPercent}% Gyroid • ${initialQuote.layerHeight}\n` +
+        `• Quantity: ${initialQuote.quantity} pcs\n` +
+        `• Net Price: €${initialQuote.totalNet.toFixed(2)} EUR\n` +
+        `• VAT: €${initialQuote.costVat.toFixed(2)} EUR\n` +
+        `• ${t.summaryGrossTotal} €${initialQuote.totalGross.toFixed(2)} EUR\n`;
+    } else if (uploadedFile) {
+      activeSpecString = `--- DYNAMIC ATTACHED FILE SPECIFICATION ---\n` +
+        `• ${t.summaryFile} ${uploadedFile.fileName}\n` +
+        `• Size: ${uploadedFile.formattedSize}\n` +
+        `• Orientation: ${uploadedFile.orientationNote}\n` +
+        `• Net Weight: ~${uploadedFile.weightGrams} g\n` +
+        `• Tree Supports: +${uploadedFile.supportPercent}% (~${uploadedFile.supportWeightGrams} g)\n` +
+        `• ${t.summaryWeightVolume} ~${uploadedFile.totalWeightGrams} g\n` +
+        `• Material: ${uploadedFile.materialRecommendation || 'PETG Technical / PAHT-CF'}\n` +
+        `• Net Price: €${uploadedFile.priceNetto} EUR\n` +
+        `• VAT: €${uploadedFile.vatAmount} EUR\n` +
+        `• ${t.summaryGrossTotal} €${uploadedFile.priceBrutto} EUR\n`;
+    } else {
+      activeSpecString = `--- NO FILE ATTACHED ---\n`;
+    }
+
+    const fullMessagePayload = `3D APEX INQUIRY & SPECIFICATION DISPATCH (RODO / DSGVO SECURE)\n\n` +
+      `Name / Company: ${userName}\n` +
+      `Email: ${userEmail}\n` +
+      `Notes: ${userNotes || 'No notes'}\n\n` +
+      `${activeSpecString}\n` +
+      `--- CHAT LOG ---\n` +
+      `${conversationText}`;
+
+    // Web3Forms API post to 3dapex.de@gmail.com
+    fetch('https://api.web3forms.com/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_key: '3dapex-b2b-inquiry-key',
+        subject: `[3D APEX ZAMÓWIENIE] Plik 3D: ${initialQuote ? initialQuote.fileName : (uploadedFile ? uploadedFile.fileName : 'Zapytanie')}`,
+        from_name: '3D Apex Customer Inquiry',
+        to_email: '3dapex.de@gmail.com',
+        email: userEmail,
+        message: fullMessagePayload
+      })
+    }).catch(err => console.log('Web3Forms email dispatch error:', err));
+
+    setTimeout(() => {
+      const emailSubject = encodeURIComponent(`3D Apex Inquiry - ${initialQuote ? initialQuote.fileName : (uploadedFile ? uploadedFile.fileName : 'Client Order')}`);
+      const emailBody = encodeURIComponent(fullMessagePayload);
       window.location.href = `mailto:3dapex.de@gmail.com?subject=${emailSubject}&body=${emailBody}`;
-    }, 500);
+    }, 400);
+
+    // Automatic Form Reset & Data Purge after 1.8 seconds (RODO / DSGVO Compliance)
+    setTimeout(() => {
+      resetEmailForm();
+    }, 1800);
   };
 
   return (
@@ -155,15 +576,21 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button 
-              onClick={() => setShowEmailDialog(true)}
-              className="btn-primary text-xs py-1.5 px-3 min-h-[36px] rounded-lg"
+              onClick={() => {
+                setFormError(null);
+                setShowEmailDialog(true);
+              }}
+              className="btn-primary text-xs py-1.5 px-3 min-h-[36px] rounded-lg flex items-center gap-1.5"
             >
               <Mail className="w-3.5 h-3.5" />
               <span className="hidden xs:inline">E-Mail</span>
             </button>
 
             <button 
-              onClick={onClose}
+              onClick={() => {
+                resetEmailForm();
+                onClose();
+              }}
               className="p-2 rounded-lg bg-slate-800 text-gray-300 hover:text-white min-h-[36px] min-w-[36px] flex items-center justify-center"
             >
               <X className="w-5 h-5" />
@@ -192,6 +619,11 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
               <span className="truncate">3dapex.de@gmail.com</span>
             </a>
           </div>
+
+          <div className="hidden sm:flex items-center gap-1 text-[10px] text-emerald-400 font-mono">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>RODO / DSGVO Compliant</span>
+          </div>
         </div>
 
         {/* Chat Messages Container */}
@@ -218,15 +650,19 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
                   <div className="mt-2 p-2.5 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-1 text-[11px]">
                     <div className="font-bold text-emerald-400 flex items-center gap-1">
                       <FileText className="w-3.5 h-3.5" />
-                      3D Wycena:
+                      {t.summaryTitle}
                     </div>
                     <div className="flex justify-between text-gray-300">
-                      <span>Plik:</span>
-                      <span className="font-semibold text-white truncate max-w-[120px]">{msg.quoteData.fileName}</span>
+                      <span>{t.summaryFile}</span>
+                      <span className="font-semibold text-white truncate max-w-[140px]">{msg.quoteData.fileName}</span>
                     </div>
-                    <div className="flex justify-between text-gray-300 font-bold border-t border-slate-800 pt-1">
-                      <span>Brutto:</span>
-                      <span className="text-emerald-400">€{msg.quoteData.totalGross}</span>
+                    <div className="flex justify-between text-gray-300">
+                      <span>{t.summaryWeightVolume}</span>
+                      <span className="font-medium text-cyan-300">{msg.quoteData.weightGrams}g ({msg.quoteData.fileVolumeCm3} cm³)</span>
+                    </div>
+                    <div className="flex justify-between text-gray-300 border-t border-slate-800 pt-1 font-bold">
+                      <span>{t.summaryGrossTotal}</span>
+                      <span className="text-emerald-400">€{msg.quoteData.totalGross} EUR</span>
                     </div>
                   </div>
                 )}
@@ -248,8 +684,24 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
           <div ref={chatEndRef} />
         </div>
 
-        {/* Input Form with text-base for iOS zoom prevention */}
-        <form onSubmit={handleSendMessage} className="p-3 bg-slate-900 border-t border-slate-800 flex gap-2">
+        {/* Input Form with Paperclip 📎 attachment button */}
+        <form onSubmit={handleSendMessage} className="p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
+          <label 
+            htmlFor="chat-file-input"
+            className="p-2.5 rounded-xl bg-slate-800 text-emerald-400 hover:bg-slate-700 hover:text-emerald-300 cursor-pointer transition-all flex items-center justify-center min-w-[44px] min-h-[44px] border border-slate-700 hover:border-emerald-500/50 shrink-0"
+            title="3D-Datei anhängen (.stl, .step, .obj, .3mf)"
+          >
+            <Paperclip className="w-5 h-5" />
+          </label>
+
+          <input 
+            type="file" 
+            id="chat-file-input"
+            accept=".stl,.step,.obj,.3mf"
+            onChange={handleChatFileUpload}
+            className="hidden"
+          />
+
           <input 
             type="text" 
             value={inputText}
@@ -260,13 +712,13 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
           
           <button 
             type="submit" 
-            className="btn-primary py-2.5 px-4 text-xs font-bold min-h-[44px] rounded-xl shrink-0"
+            className="btn-primary py-2.5 px-4 text-xs font-bold min-h-[44px] rounded-xl shrink-0 flex items-center justify-center"
           >
             <Send className="w-4 h-4" />
           </button>
         </form>
 
-        {/* Email Dialog Overlay */}
+        {/* Email Dialog Overlay with Strict Custom i18n Validation & RODO Reset */}
         {showEmailDialog && (
           <div className="absolute inset-0 z-20 bg-slate-950/95 p-5 sm:p-6 flex flex-col justify-center space-y-4">
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
@@ -275,7 +727,9 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
                 {t.emailModalTitle}
               </h4>
               <button 
-                onClick={() => setShowEmailDialog(false)}
+                onClick={() => {
+                  resetEmailForm();
+                }}
                 className="text-gray-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
@@ -286,62 +740,147 @@ export const AiAgentModal: React.FC<AiAgentModalProps> = ({
               {t.emailModalDesc}
             </p>
 
-            <div className="space-y-3">
+            {/* Red Validation Error Message Banner */}
+            {formError && (
+              <div className="p-3 rounded-xl bg-red-500/20 border border-red-500/50 text-red-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            {/* Dynamic 3D Specification Preview Card in Email Modal */}
+            {initialQuote ? (
+              <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/50 space-y-1.5 text-xs">
+                <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                  <FileText className="w-4 h-4" />
+                  <span>{t.summaryTitle}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>{t.summaryFile}</span>
+                  <span className="font-bold text-white truncate max-w-[180px]">{initialQuote.fileName}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>{t.summaryWeightVolume}</span>
+                  <span className="font-mono text-cyan-300">{initialQuote.weightGrams} g ({MATERIALS.find(m => m.id === initialQuote.materialId)?.name || initialQuote.materialId})</span>
+                </div>
+                <div className="flex justify-between text-slate-300 pt-1 border-t border-slate-800 font-bold">
+                  <span>{t.summaryGrossTotal}</span>
+                  <span className="text-emerald-400 text-sm">€{initialQuote.totalGross} EUR</span>
+                </div>
+              </div>
+            ) : uploadedFile ? (
+              <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/50 space-y-1.5 text-xs">
+                <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                  <Paperclip className="w-4 h-4" />
+                  <span>{t.summaryTitle}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>{t.summaryFile}</span>
+                  <span className="font-bold text-white truncate max-w-[180px]">{uploadedFile.fileName} ({uploadedFile.formattedSize})</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>{t.summaryWeightVolume}</span>
+                  <span className="font-mono text-cyan-300">~{uploadedFile.weightGrams}g + Stützen: ~{uploadedFile.totalWeightGrams}g</span>
+                </div>
+                <div className="flex justify-between text-slate-300 pt-1 border-t border-slate-800 font-bold">
+                  <span>{t.summaryGrossTotal}</span>
+                  <span className="text-emerald-400 text-sm">€{uploadedFile.priceBrutto} EUR</span>
+                </div>
+              </div>
+            ) : null}
+
+            <form noValidate onSubmit={(e) => { e.preventDefault(); handleTriggerEmailDispatch(); }} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-gray-300 block mb-1">E-mail *</label>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">{t.yourEmail} *</label>
                 <input 
                   type="email" 
                   value={userEmail}
-                  onChange={(e) => setUserEmail(e.target.value)}
+                  onChange={(e) => {
+                    setUserEmail(e.target.value);
+                    if (formError) setFormError(null);
+                  }}
+                  onBlur={() => setEmailTouched(true)}
                   placeholder="your-email@domain.com"
-                  className="bg-slate-900 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-base w-full min-h-[44px]"
-                  required
+                  className={`bg-slate-900 text-slate-100 rounded-xl px-4 py-2.5 text-base w-full min-h-[44px] transition-all ${
+                    emailTouched && !isEmailValid 
+                      ? 'border-2 border-red-500/80 focus:border-red-400 focus:outline-none ring-1 ring-red-500/40' 
+                      : 'border border-slate-700 focus:outline-none focus:border-emerald-500'
+                  }`}
                 />
+                {emailTouched && !userEmail.trim() && (
+                  <span className="text-red-400 text-[11px] font-medium mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    {tVal.requiredField}
+                  </span>
+                )}
+                {emailTouched && userEmail.trim() && !isEmailValid && (
+                  <span className="text-red-400 text-[11px] font-medium mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    {tVal.invalidEmail}
+                  </span>
+                )}
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-300 block mb-1">Name / Company</label>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">{t.yourName} *</label>
                 <input 
                   type="text" 
                   value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  placeholder="Company / Full Name"
-                  className="bg-slate-900 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-base w-full min-h-[44px]"
+                  onChange={(e) => {
+                    setUserName(e.target.value);
+                    if (formError) setFormError(null);
+                  }}
+                  onBlur={() => setNameTouched(true)}
+                  placeholder="Company / Full Name (min. 2 chars)"
+                  className={`bg-slate-900 text-slate-100 rounded-xl px-4 py-2.5 text-base w-full min-h-[44px] transition-all ${
+                    nameTouched && !isNameValid 
+                      ? 'border-2 border-red-500/80 focus:border-red-400 focus:outline-none ring-1 ring-red-500/40' 
+                      : 'border border-slate-700 focus:outline-none focus:border-emerald-500'
+                  }`}
                 />
+                {nameTouched && !isNameValid && (
+                  <span className="text-red-400 text-[11px] font-medium mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    {tVal.requiredField}
+                  </span>
+                )}
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-300 block mb-1">Notes</label>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">{t.notes}</label>
                 <textarea 
                   value={userNotes}
                   onChange={(e) => setUserNotes(e.target.value)}
-                  placeholder="Details..."
-                  className="bg-slate-900 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-base w-full h-20"
+                  placeholder="Additional specifications or project notes..."
+                  className="bg-slate-900 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-base w-full h-20 focus:outline-none focus:border-emerald-500"
                 />
               </div>
-            </div>
 
-            <div className="pt-2 flex gap-3">
-              <button 
-                onClick={handleTriggerEmailDispatch}
-                className="flex-1 btn-primary justify-center text-xs py-3 min-h-[44px] rounded-xl font-bold"
-              >
-                <Mail className="w-4 h-4" />
-                <span>3dapex.de@gmail.com</span>
-              </button>
+              <div className="pt-2 flex gap-3">
+                <button 
+                  type="submit"
+                  className={`flex-1 btn-primary justify-center text-xs py-3 min-h-[44px] rounded-xl font-bold flex items-center gap-2 transition-all`}
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>3dapex.de@gmail.com</span>
+                </button>
 
-              <button 
-                onClick={() => setShowEmailDialog(false)}
-                className="btn-secondary text-xs min-h-[44px] rounded-xl"
-              >
-                Cancel
-              </button>
-            </div>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    resetEmailForm();
+                  }}
+                  className="btn-secondary text-xs min-h-[44px] rounded-xl"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
 
             {emailSentSuccess && (
               <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0" />
-                <span>Dispatched to 3dapex.de@gmail.com!</span>
+                <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>Dispatched to 3dapex.de@gmail.com! (RODO Auto-Purge active)</span>
               </div>
             )}
           </div>

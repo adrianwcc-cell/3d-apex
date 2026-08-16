@@ -5,6 +5,9 @@ export interface STLParseResult {
   surfaceAreaCm2: number;
   dimensions: Dimensions3D;
   triangleCount: number;
+  overhangRatio: number; // 0.0 to 1.0
+  supportPercent: number; // 0, 12, or 22
+  orientationNote: string;
 }
 
 export function parseSTLArrayBuffer(buffer: ArrayBuffer): STLParseResult {
@@ -26,6 +29,7 @@ function parseBinarySTL(dataView: DataView): STLParseResult {
   const triangleCount = dataView.getUint32(80, true);
   let totalVolume = 0;
   let totalArea = 0;
+  let overhangArea = 0;
 
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
@@ -34,7 +38,10 @@ function parseBinarySTL(dataView: DataView): STLParseResult {
   let offset = 84;
 
   for (let i = 0; i < triangleCount; i++) {
-    // Skip normal vector (3 floats = 12 bytes)
+    // Normal vector from STL
+    let nx = dataView.getFloat32(offset, true);
+    let ny = dataView.getFloat32(offset + 4, true);
+    let nz = dataView.getFloat32(offset + 8, true);
     offset += 12;
 
     const v1x = dataView.getFloat32(offset, true);
@@ -60,7 +67,7 @@ function parseBinarySTL(dataView: DataView): STLParseResult {
     minZ = Math.min(minZ, v1z, v2z, v3z);
     maxZ = Math.max(maxZ, v1z, v2z, v3z);
 
-    // Signed volume contribution of triangle (divergence theorem / tetrahedron volume)
+    // Tetrahedron volume calculation
     const v321 = v3x * v2y * v1z;
     const v231 = v2x * v3y * v1z;
     const v312 = v3x * v1y * v2z;
@@ -69,28 +76,62 @@ function parseBinarySTL(dataView: DataView): STLParseResult {
     const v123 = v1x * v2y * v3z;
     totalVolume += (-v321 + v231 + v312 - v132 - v213 + v123) / 6.0;
 
-    // Surface Area calculation (cross product)
+    // Cross product for Area & Normal calculation
     const ax = v2x - v1x, ay = v2y - v1y, az = v2z - v1z;
     const bx = v3x - v1x, by = v3y - v1y, bz = v3z - v1z;
     const cx = ay * bz - az * by;
     const cy = az * bx - ax * bz;
     const cz = ax * by - ay * bx;
-    totalArea += 0.5 * Math.sqrt(cx * cx + cy * cy + cz * cz);
+    const area = 0.5 * Math.sqrt(cx * cx + cy * cy + cz * cz);
+    totalArea += area;
+
+    // Compute Normal if zero vector in STL
+    let normLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (normLen < 0.0001) {
+      nx = cx; ny = cy; nz = cz;
+      normLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    }
+
+    if (normLen > 0.0001) {
+      const normalizedNz = nz / normLen;
+      // Overhang > 45° pointing downwards (negative Z axis)
+      if (normalizedNz < -0.707) {
+        overhangArea += area;
+      }
+    }
   }
 
   const volumeMm3 = Math.abs(totalVolume);
   const volumeCm3 = Math.max(0.1, Number((volumeMm3 / 1000.0).toFixed(2)));
   const surfaceAreaCm2 = Number((totalArea / 100.0).toFixed(2));
+  const overhangRatio = totalArea > 0 ? Number((overhangArea / totalArea).toFixed(3)) : 0;
+
+  // Support calculation based on overhang ratio
+  let supportPercent = 0;
+  if (overhangRatio >= 0.18) {
+    supportPercent = 22; // Complex overhangs
+  } else if (overhangRatio >= 0.05) {
+    supportPercent = 12; // Moderate overhangs
+  } else {
+    supportPercent = 0; // Simple geometry / no overhangs
+  }
+
+  const dimX = Number((maxX - minX).toFixed(1));
+  const dimY = Number((maxY - minY).toFixed(1));
+  const dimZ = Number((maxZ - minZ).toFixed(1));
+
+  const orientationNote = dimZ > dimX || dimZ > dimY 
+    ? "Wykryto najszerszą podstawę (Z-minimized)"
+    : "Zoptymalizowany układ podstawy (Opto-Orientation)";
 
   return {
     volumeCm3,
     surfaceAreaCm2,
-    dimensions: {
-      x: Number((maxX - minX).toFixed(1)),
-      y: Number((maxY - minY).toFixed(1)),
-      z: Number((maxZ - minZ).toFixed(1))
-    },
-    triangleCount
+    dimensions: { x: dimX, y: dimY, z: dimZ },
+    triangleCount,
+    overhangRatio,
+    supportPercent,
+    orientationNote
   };
 }
 
@@ -98,6 +139,7 @@ function parseAsciiSTL(text: string): STLParseResult {
   const lines = text.split('\n');
   let totalVolume = 0;
   let totalArea = 0;
+  let overhangArea = 0;
   let triangleCount = 0;
 
   let minX = Infinity, maxX = -Infinity;
@@ -105,10 +147,20 @@ function parseAsciiSTL(text: string): STLParseResult {
   let minZ = Infinity, maxZ = -Infinity;
 
   const vertices: { x: number; y: number; z: number }[] = [];
+  let currentNormal = { x: 0, y: 0, z: 0 };
 
   for (let line of lines) {
     line = line.trim();
-    if (line.startsWith('vertex')) {
+    if (line.startsWith('facet normal')) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 4) {
+        currentNormal = {
+          x: parseFloat(parts[2]),
+          y: parseFloat(parts[3]),
+          z: parseFloat(parts[4])
+        };
+      }
+    } else if (line.startsWith('vertex')) {
       const parts = line.split(/\s+/);
       if (parts.length >= 4) {
         const x = parseFloat(parts[1]);
@@ -142,7 +194,23 @@ function parseAsciiSTL(text: string): STLParseResult {
           const cx = ay * bz - az * by;
           const cy = az * bx - ax * bz;
           const cz = ax * by - ay * bx;
-          totalArea += 0.5 * Math.sqrt(cx * cx + cy * cy + cz * cz);
+          const area = 0.5 * Math.sqrt(cx * cx + cy * cy + cz * cz);
+          totalArea += area;
+
+          // Compute Normal if zero vector in STL
+          let nx = currentNormal.x, ny = currentNormal.y, nz = currentNormal.z;
+          let normLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+          if (normLen < 0.0001) {
+            nx = cx; ny = cy; nz = cz;
+            normLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+          }
+
+          if (normLen > 0.0001) {
+            const normalizedNz = nz / normLen;
+            if (normalizedNz < -0.707) {
+              overhangArea += area;
+            }
+          }
 
           vertices.length = 0; // reset for next triangle
         }
@@ -153,15 +221,32 @@ function parseAsciiSTL(text: string): STLParseResult {
   const volumeMm3 = Math.abs(totalVolume);
   const volumeCm3 = Math.max(0.1, Number((volumeMm3 / 1000.0).toFixed(2)));
   const surfaceAreaCm2 = Number((totalArea / 100.0).toFixed(2));
+  const overhangRatio = totalArea > 0 ? Number((overhangArea / totalArea).toFixed(3)) : 0;
+
+  let supportPercent = 0;
+  if (overhangRatio >= 0.18) {
+    supportPercent = 22;
+  } else if (overhangRatio >= 0.05) {
+    supportPercent = 12;
+  } else {
+    supportPercent = 0;
+  }
+
+  const dimX = Number((maxX - minX).toFixed(1));
+  const dimY = Number((maxY - minY).toFixed(1));
+  const dimZ = Number((maxZ - minZ).toFixed(1));
+
+  const orientationNote = dimZ > dimX || dimZ > dimY 
+    ? "Wykryto najszerszą podstawę (Z-minimized)"
+    : "Zoptymalizowany układ podstawy (Opto-Orientation)";
 
   return {
     volumeCm3,
     surfaceAreaCm2,
-    dimensions: {
-      x: Number((maxX - minX).toFixed(1)),
-      y: Number((maxY - minY).toFixed(1)),
-      z: Number((maxZ - minZ).toFixed(1))
-    },
-    triangleCount
+    dimensions: { x: dimX, y: dimY, z: dimZ },
+    triangleCount,
+    overhangRatio,
+    supportPercent,
+    orientationNote
   };
 }

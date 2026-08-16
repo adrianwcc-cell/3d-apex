@@ -26,7 +26,7 @@ export const FaqSection: React.FC<FaqSectionProps> = ({ language }) => {
         <div className="text-center space-y-3">
           <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-semibold uppercase tracking-wider">
             <HelpCircle className="w-3.5 h-3.5" />
-            Pytania i Odpowiedzi
+            {t.badge}
           </div>
           <h2 className="font-heading font-extrabold text-3xl sm:text-4xl text-white">
             {t.title}

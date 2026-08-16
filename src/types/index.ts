@@ -44,6 +44,24 @@ export interface QuoteParams {
   totalGross: number;
 }
 
+export interface AttachedFileInfo {
+  fileName: string;
+  formattedSize: string;
+  fileSizeBytes: number;
+  weightGrams: number;
+  supportWeightGrams: number;
+  totalWeightGrams: number;
+  volumeCm3: number;
+  dimensions?: Dimensions3D;
+  supportPercent: number; // 0, 12, or 22
+  orientationNote: string;
+  priceNetto: string;
+  vatAmount: string;
+  priceBrutto: string;
+  materialRecommendation?: string;
+  surfaceFinish?: string;
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'agent' | 'system';
@@ -51,4 +69,5 @@ export interface ChatMessage {
   timestamp: string;
   isQuoteSummary?: boolean;
   quoteData?: QuoteParams;
+  attachedFile?: AttachedFileInfo;
 }

@@ -121,11 +121,18 @@ export const Hero: React.FC<HeroProps> = ({
               <div className="space-y-4">
                 <div className="h-44 sm:h-56 rounded-xl bg-black/60 overflow-hidden relative border border-slate-800 group">
                   <img 
-                    src="/images/tpu_insole.png" 
+                    src="images/tpu_insole.png" 
                     alt="TPU 95A Orthotic Insole" 
                     className="w-full h-44 sm:h-56 object-cover rounded-xl group-hover:scale-105 transition-transform duration-500"
                     onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
+                      const target = e.target as HTMLImageElement;
+                      if (!target.dataset.triedJpg) {
+                        target.dataset.triedJpg = 'true';
+                        target.src = 'images/tpu_insole.jpg';
+                      } else if (!target.dataset.triedFallback) {
+                        target.dataset.triedFallback = 'true';
+                        target.src = 'images/med_petg.png';
+                      }
                     }}
                   />
                   <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500 text-slate-950 shadow-md">

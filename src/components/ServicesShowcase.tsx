@@ -41,21 +41,28 @@ export const ServicesShowcase: React.FC<ServicesShowcaseProps> = ({
           </p>
         </div>
 
-        {/* 3 Column Grid Layout on Desktop / 1 Column on Mobile (grid-cols-1 md:grid-cols-3) */}
+        {/* 3 Column Grid Layout on Desktop / 1 Column on Mobile */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 items-stretch">
           
-          {/* Card 1: Reverse Engineering */}
+          {/* Card 1: Nachfertigung Ausgelaufener Ersatzteile (Reverse Engineering) */}
           <div className="glass-panel p-6 flex flex-col justify-between space-y-6 hover:border-cyan-500/40 transition-all group">
             <div className="space-y-4">
               
               {/* Image Container with fixed height h-48 w-full object-cover rounded-xl */}
               <div className="h-48 w-full rounded-xl overflow-hidden relative border border-slate-800 bg-slate-950">
                 <img 
-                  src="/images/part_petg.png"
+                  src="images/part_petg.jpg" 
                   alt="Reverse Engineering" 
                   className="h-48 w-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
+                    const target = e.target as HTMLImageElement;
+                    if (!target.dataset.triedPng) {
+                      target.dataset.triedPng = 'true';
+                      target.src = 'images/part_petg.png';
+                    } else if (!target.dataset.triedAbs) {
+                      target.dataset.triedAbs = 'true';
+                      target.src = '/images/part_petg.png';
+                    }
                   }}
                 />
                 <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-bold bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 backdrop-blur-md">
@@ -103,18 +110,25 @@ export const ServicesShowcase: React.FC<ServicesShowcaseProps> = ({
             </button>
           </div>
 
-          {/* Card 2: TPU Medical Insoles */}
+          {/* Card 2: Orthopädische TPU-Einlagen & Medizindruck */}
           <div className="glass-panel p-6 flex flex-col justify-between space-y-6 hover:border-emerald-500/40 transition-all group glass-panel-active">
             <div className="space-y-4">
               
               {/* Image Container with fixed height h-48 w-full object-cover rounded-xl */}
               <div className="h-48 w-full rounded-xl overflow-hidden relative border border-slate-800 bg-slate-950">
                 <img 
-                  src="/images/tpu_insole.png" 
-                  alt="TPU Medical Insoles" 
+                  src="images/tpu_insole.jpg" 
+                  alt="Orthopädische TPU-Einlagen" 
                   className="h-48 w-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
+                    const target = e.target as HTMLImageElement;
+                    if (!target.dataset.triedPng) {
+                      target.dataset.triedPng = 'true';
+                      target.src = 'images/tpu_insole.png';
+                    } else if (!target.dataset.triedAbs) {
+                      target.dataset.triedAbs = 'true';
+                      target.src = '/images/tpu_insole.png';
+                    }
                   }}
                 />
                 <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500 text-slate-950 shadow-md">
@@ -162,18 +176,25 @@ export const ServicesShowcase: React.FC<ServicesShowcaseProps> = ({
             </button>
           </div>
 
-          {/* Card 3: Bambu Lab Fleet */}
+          {/* Card 3: Industrieller Seriendruck mit Bambu Lab */}
           <div className="glass-panel p-6 flex flex-col justify-between space-y-6 hover:border-purple-500/40 transition-all group">
             <div className="space-y-4">
               
               {/* Image Container with fixed height h-48 w-full object-cover rounded-xl */}
               <div className="h-48 w-full rounded-xl overflow-hidden relative border border-slate-800 bg-slate-950">
                 <img 
-                  src="/images/proto_pla.png"
-                  alt="Bambu Lab Fleet" 
+                  src="images/proto_pla.jpg" 
+                  alt="Industrieller Seriendruck mit Bambu Lab" 
                   className="h-48 w-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
+                    const target = e.target as HTMLImageElement;
+                    if (!target.dataset.triedPng) {
+                      target.dataset.triedPng = 'true';
+                      target.src = 'images/proto_pla.png';
+                    } else if (!target.dataset.triedAbs) {
+                      target.dataset.triedAbs = 'true';
+                      target.src = '/images/proto_pla.png';
+                    }
                   }}
                 />
                 <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-500/20 border border-purple-400/40 text-purple-300 backdrop-blur-md">

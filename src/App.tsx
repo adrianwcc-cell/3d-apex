@@ -11,7 +11,7 @@ import { AiAgentModal } from './components/AiAgentModal';
 import { Bot } from 'lucide-react';
 
 export function App() {
-  // German (DE) default language
+  // German (DE) default language with support for DE/EN/PL/TR/UK
   const [language, setLanguage] = useState<Language>('DE');
   const [aiModalOpen, setAiModalOpen] = useState<boolean>(false);
   const [activeQuote, setActiveQuote] = useState<QuoteParams | null>(null);
@@ -45,7 +45,7 @@ export function App() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0B0F17] text-slate-100 w-full max-w-full overflow-x-hidden">
       
-      {/* Sticky Header */}
+      {/* Sticky Header z przełącznikiem języków DE/EN/PL/TR/UK */}
       <Header 
         language={language}
         setLanguage={setLanguage}
@@ -57,21 +57,21 @@ export function App() {
       {/* Main Content Sections */}
       <main className="flex-1 w-full max-w-full overflow-x-hidden">
         
-        {/* Hero Section */}
+        {/* Hero Section z wizualizacją wkładki TPU */}
         <Hero 
           language={language}
           onOpenCalculator={scrollToCalculator}
           onOpenAiAgent={() => setAiModalOpen(true)}
         />
 
-        {/* Services Showcase */}
+        {/* Services Showcase z kartą medycznych wkładek TPU */}
         <ServicesShowcase 
           language={language}
           onOpenCalculator={scrollToCalculator}
           onOpenAiAgent={() => setAiModalOpen(true)}
         />
 
-        {/* 3D Pricing Calculator */}
+        {/* 3D Pricing Calculator z estymacją wyceny */}
         <Calculator 
           language={language}
           onSendQuoteToAi={handleSendQuoteToAi}
@@ -103,7 +103,7 @@ export function App() {
         </button>
       </div>
 
-      {/* Interactive AI Agent Modal */}
+      {/* Interactive AI Agent Modal z czatem AI i załącznikiem plików 📎 */}
       <AiAgentModal 
         isOpen={aiModalOpen}
         onClose={() => setAiModalOpen(false)}
